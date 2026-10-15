@@ -1,4 +1,4 @@
-**_Exit Price Application Process_**
+**_Exit Price Application Progress_**
 
 **15th October 2026**
 - Created the project on GitHub and cloned it.
