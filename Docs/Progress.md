@@ -20,4 +20,9 @@
 * Made the results easier to read by displaying profits in green and losses in red.
 
 **Testing and Final Improvements**
-
+* Tested the calculator with different investment amounts and dates.
+* Checked the profit, loss, and ROI calculations.
+* Tested CSV loading and error handling.
+* Checked that the cryptocurrency comparison table displays the available prices correctly.
+* Fixed issues found during testing.
+* Reviewed the interface and made final improvements to the layout and readability.
