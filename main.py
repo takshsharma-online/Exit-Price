@@ -1,981 +1,1051 @@
+# ============================================================
+# Fixed Price - Cryptocurrency Profit Calculator
+# ============================================================
+# This application helps users calculate the profit or loss
+# they could make from a cryptocurrency investment.
+#
+# Users can:
+# 1. Load cryptocurrency prices from a CSV file.
+# 2. Select a cryptocurrency and investment dates.
+# 3. Calculate profit, loss, and return on investment (ROI).
+# 4. Compare the prices of different cryptocurrencies.
+#
+# The interface uses a simple green-and-white colour theme
+# to keep the application clean and easy to understand.
+# ============================================================
+
+
 import sys
 from pathlib import Path
 
 import pandas as pd
 
+# PyQt6 provides all the tools needed to create the desktop UI.
 from PyQt6.QtCore import Qt, QDate
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QApplication,
     QMainWindow,
     QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QGridLayout,
     QLabel,
     QPushButton,
     QComboBox,
     QDoubleSpinBox,
     QDateEdit,
+    QVBoxLayout,
+    QHBoxLayout,
+    QGridLayout,
     QTabWidget,
-    QFrame,
     QTableWidget,
     QTableWidgetItem,
     QFileDialog,
     QMessageBox,
-    QHeaderView,
-    QAbstractItemView,
+    QFrame,
 )
 
 
-APP_DIR = Path(__file__).resolve().parent
+class FixedPrice(QMainWindow):
+    """
+    This is the main class for the Fixed Price application.
 
-
-class ExitPrice(QMainWindow):
+    It manages the window, loads the cryptocurrency dataset,
+    calculates investment results, and compares assets.
+    """
 
     def __init__(self):
+        # Set up the main window before adding our own widgets.
         super().__init__()
 
-        self.setWindowTitle("ExitPrice")
+        self.setWindowTitle("Fixed Price")
         self.setMinimumSize(900, 650)
-        self.resize(1100, 760)
+        self.resize(1050, 750)
 
+        # These colours keep the application looking consistent.
+        self.green = "#23845B"
+        self.dark_green = "#176443"
+        self.light_green = "#EAF6EF"
+        self.white = "#FFFFFF"
+        self.background = "#F5F8F6"
+        self.text_colour = "#26352D"
+        self.muted_colour = "#6B7A70"
+        self.border_colour = "#DCE7DF"
+
+        # The dataset will be stored here once a CSV file loads.
         self.data = pd.DataFrame()
-        self.price_history = {}
         self.csv_path = None
 
-        self.build_ui()
-        self.apply_style()
-        self.find_csv()
+        # Build the interface first so the application is ready
+        # for the user, even if the CSV file is not found.
+        self.build_interface()
+        self.apply_styles()
 
-    # ==================================================
-    # MAIN INTERFACE
-    # ==================================================
+        # Try to find the CSV file automatically.
+        # If it is not in the project folder, the user can
+        # choose the file manually.
+        csv_file = self.find_csv()
 
-    def build_ui(self):
-        central = QWidget()
-        self.setCentralWidget(central)
+        if csv_file:
+            self.load_csv(csv_file)
+        else:
+            self.choose_csv(show_message=False)
 
-        root = QVBoxLayout(central)
-        root.setContentsMargins(28, 24, 28, 24)
-        root.setSpacing(20)
+    # --------------------------------------------------------
+    # FIND THE CSV FILE
+    # --------------------------------------------------------
 
-        # Header
-        header = QHBoxLayout()
+    def find_csv(self):
+        """
+        Look for the cryptocurrency CSV file in sensible places.
+
+        Keeping the CSV next to main.py is the easiest option.
+        If it is not there, the user can select it manually.
+        """
+
+        # Find the folder containing this Python file.
+        app_folder = Path(__file__).resolve().parent
+
+        # Check the most likely filenames first.
+        possible_files = [
+            app_folder / "combined(1).csv",
+            app_folder / "combined.csv",
+        ]
+
+        for file_path in possible_files:
+            if file_path.is_file():
+                return file_path
+
+        # If the expected filenames are missing, look for any
+        # CSV file in the same folder.
+        other_csv_files = sorted(app_folder.glob("*.csv"))
+
+        if len(other_csv_files) == 1:
+            return other_csv_files[0]
+
+        # If several CSV files exist, it is safer to let the
+        # user choose the correct one rather than guess.
+        return None
+
+    # --------------------------------------------------------
+    # BUILD THE MAIN INTERFACE
+    # --------------------------------------------------------
+
+    def build_interface(self):
+        """Create the main window layout and its two tabs."""
+
+        # The central widget holds everything inside the window.
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+
+        # A vertical layout places the heading, tabs, and footer
+        # neatly on top of one another.
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.setContentsMargins(28, 24, 28, 18)
+        main_layout.setSpacing(18)
+
+        # ---------------- HEADER ----------------
+
+        header_layout = QHBoxLayout()
 
         heading_layout = QVBoxLayout()
         heading_layout.setSpacing(5)
 
-        title = QLabel("Exit Price")
-        title.setObjectName("appTitle")
+        title = QLabel("Fixed Price")
+        title.setObjectName("mainTitle")
 
-        subtitle = QLabel("Your cryptocurrency profit calculator")
+        subtitle = QLabel(
+            "A simple way to calculate and compare "
+            "cryptocurrency investments."
+        )
         subtitle.setObjectName("subtitle")
+        subtitle.setWordWrap(True)
 
         heading_layout.addWidget(title)
         heading_layout.addWidget(subtitle)
 
-        header.addLayout(heading_layout)
-        header.addStretch()
+        header_layout.addLayout(heading_layout)
+        header_layout.addStretch()
 
-        self.csv_button = QPushButton("Choose CSV")
-        self.csv_button.setObjectName("outlineButton")
-        self.csv_button.clicked.connect(self.choose_csv)
+        # This button allows the user to load or change the CSV
+        # file without restarting the application.
+        self.load_button = QPushButton("Load CSV")
+        self.load_button.setObjectName("secondaryButton")
+        self.load_button.clicked.connect(self.choose_csv)
 
-        header.addWidget(self.csv_button)
-        root.addLayout(header)
+        header_layout.addWidget(self.load_button)
 
-        # Tabs
+        main_layout.addLayout(header_layout)
+
+        # ---------------- TABS ----------------
+
+        # Separate tabs keep the calculator and comparison tools
+        # organised instead of squeezing everything into one page.
         self.tabs = QTabWidget()
-        self.tabs.setDocumentMode(True)
 
+        self.calculator_tab = QWidget()
+        self.compare_tab = QWidget()
+
+        self.tabs.addTab(self.calculator_tab, "Profit Calculator")
+        self.tabs.addTab(self.compare_tab, "Compare Assets")
+
+        main_layout.addWidget(self.tabs)
+
+        # Build the contents of each tab.
         self.build_calculator_tab()
-        self.build_comparison_tab()
+        self.build_compare_tab()
 
-        root.addWidget(self.tabs)
+        # ---------------- FOOTER ----------------
 
-        # Small file indicator, not a status bar.
-        self.file_label = QLabel("No CSV loaded")
-        self.file_label.setObjectName("fileLabel")
-        root.addWidget(self.file_label)
+        # This small label shows which dataset is currently loaded.
+        # It also helps the user check that the correct file is used.
+        self.file_status = QLabel("No CSV file loaded")
+        self.file_status.setObjectName("footerLabel")
 
-    # ==================================================
-    # CALCULATOR TAB
-    # ==================================================
+        main_layout.addWidget(self.file_status)
+
+    # --------------------------------------------------------
+    # PROFIT CALCULATOR TAB
+    # --------------------------------------------------------
 
     def build_calculator_tab(self):
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-        layout.setContentsMargins(10, 22, 10, 10)
+        """Create the controls used to calculate an investment."""
+
+        layout = QVBoxLayout(self.calculator_tab)
+        layout.setContentsMargins(8, 18, 8, 8)
         layout.setSpacing(18)
 
-        heading = QLabel("Calculate your trade")
-        heading.setObjectName("sectionTitle")
-        layout.addWidget(heading)
+        # The form card keeps all investment inputs together.
+        input_card = QFrame()
+        input_card.setObjectName("card")
 
-        description = QLabel(
-            "Choose an asset, enter your quantity, and select your dates."
-        )
-        description.setObjectName("description")
-        layout.addWidget(description)
+        form_layout = QGridLayout(input_card)
+        form_layout.setContentsMargins(24, 24, 24, 24)
+        form_layout.setHorizontalSpacing(20)
+        form_layout.setVerticalSpacing(16)
 
-        # Input card
-        input_card = self.make_card()
-        grid = QGridLayout(input_card)
-        grid.setContentsMargins(22, 22, 22, 22)
-        grid.setHorizontalSpacing(20)
-        grid.setVerticalSpacing(12)
-
-        grid.addWidget(self.make_label("Cryptocurrency"), 0, 0)
-        grid.addWidget(self.make_label("Quantity"), 0, 1)
-        grid.addWidget(self.make_label("Buy date"), 2, 0)
-        grid.addWidget(self.make_label("Sell date"), 2, 1)
-
+        # Users select the cryptocurrency they want to analyse.
+        asset_label = QLabel("Cryptocurrency")
         self.asset_combo = QComboBox()
-        self.asset_combo.setMinimumHeight(42)
-        self.asset_combo.setMaxVisibleItems(15)
-        self.asset_combo.setEnabled(False)
-        self.asset_combo.currentIndexChanged.connect(
-            self.calculate_trade
-        )
+        self.asset_combo.setMinimumHeight(40)
 
-        self.quantity = QDoubleSpinBox()
-        self.quantity.setRange(0.000001, 1_000_000_000)
-        self.quantity.setDecimals(6)
-        self.quantity.setValue(1.0)
-        self.quantity.setMinimumHeight(42)
-        self.quantity.valueChanged.connect(self.calculate_trade)
+        # Investment amount is entered as a monetary value.
+        amount_label = QLabel("Investment amount")
+        self.amount_input = QDoubleSpinBox()
+        self.amount_input.setRange(0.01, 1_000_000_000)
+        self.amount_input.setDecimals(2)
+        self.amount_input.setValue(1000.00)
+        self.amount_input.setPrefix("$ ")
+        self.amount_input.setMinimumHeight(40)
 
+        # The user chooses when they would have bought the asset.
+        buy_date_label = QLabel("Purchase date")
         self.buy_date = QDateEdit()
         self.buy_date.setCalendarPopup(True)
         self.buy_date.setDisplayFormat("dd MMM yyyy")
-        self.buy_date.setMinimumHeight(42)
-        self.buy_date.dateChanged.connect(self.buy_date_changed)
+        self.buy_date.setMinimumHeight(40)
 
+        # The second date is used to estimate the value at sale.
+        sell_date_label = QLabel("Sale date")
         self.sell_date = QDateEdit()
         self.sell_date.setCalendarPopup(True)
         self.sell_date.setDisplayFormat("dd MMM yyyy")
-        self.sell_date.setMinimumHeight(42)
-        self.sell_date.dateChanged.connect(self.sell_date_changed)
+        self.sell_date.setMinimumHeight(40)
 
-        grid.addWidget(self.asset_combo, 1, 0)
-        grid.addWidget(self.quantity, 1, 1)
-        grid.addWidget(self.buy_date, 3, 0)
-        grid.addWidget(self.sell_date, 3, 1)
+        # Add each label and input to the form.
+        form_layout.addWidget(asset_label, 0, 0)
+        form_layout.addWidget(self.asset_combo, 1, 0)
+
+        form_layout.addWidget(amount_label, 0, 1)
+        form_layout.addWidget(self.amount_input, 1, 1)
+
+        form_layout.addWidget(buy_date_label, 2, 0)
+        form_layout.addWidget(self.buy_date, 3, 0)
+
+        form_layout.addWidget(sell_date_label, 2, 1)
+        form_layout.addWidget(self.sell_date, 3, 1)
 
         layout.addWidget(input_card)
 
+        # ---------------- CALCULATE BUTTON ----------------
+
         self.calculate_button = QPushButton("Calculate Profit / Loss")
-        self.calculate_button.setMinimumHeight(44)
-        self.calculate_button.clicked.connect(self.calculate_trade)
+        self.calculate_button.setObjectName("primaryButton")
+        self.calculate_button.setMinimumHeight(46)
+
+        # Clicking the button runs our calculation method.
+        self.calculate_button.clicked.connect(self.calculate_profit)
+
         layout.addWidget(self.calculate_button)
 
-        # Results
-        results_heading = QLabel("Your results")
-        results_heading.setObjectName("sectionTitle")
-        layout.addWidget(results_heading)
+        # ---------------- RESULTS ----------------
 
-        results_grid = QGridLayout()
-        results_grid.setSpacing(14)
+        # These labels are updated after a calculation.
+        # Starting with dashes makes it clear that no result
+        # has been calculated yet.
+        results_card = QFrame()
+        results_card.setObjectName("card")
 
-        self.purchase_card, self.purchase_result = self.result_card(
-            "Purchase cost"
+        results_layout = QGridLayout(results_card)
+        results_layout.setContentsMargins(24, 24, 24, 24)
+        results_layout.setHorizontalSpacing(20)
+        results_layout.setVerticalSpacing(18)
+
+        self.purchase_price_result = self.create_result_label("--")
+        self.sale_price_result = self.create_result_label("--")
+        self.units_result = self.create_result_label("--")
+        self.final_value_result = self.create_result_label("--")
+        self.profit_result = self.create_result_label("--")
+        self.roi_result = self.create_result_label("--")
+
+        results_layout.addWidget(
+            self.create_result_group("Price at purchase", self.purchase_price_result),
+            0, 0
         )
-        self.sale_card, self.sale_result = self.result_card(
-            "Sale value"
+        results_layout.addWidget(
+            self.create_result_group("Price at sale", self.sale_price_result),
+            0, 1
         )
-        self.profit_card, self.profit_result = self.result_card(
-            "Profit / loss"
+        results_layout.addWidget(
+            self.create_result_group("Units purchased", self.units_result),
+            1, 0
         )
-        self.roi_card, self.roi_result = self.result_card(
-            "Return on investment"
+        results_layout.addWidget(
+            self.create_result_group("Value at sale", self.final_value_result),
+            1, 1
+        )
+        results_layout.addWidget(
+            self.create_result_group("Profit / Loss", self.profit_result),
+            2, 0
+        )
+        results_layout.addWidget(
+            self.create_result_group("Return on investment", self.roi_result),
+            2, 1
         )
 
-        results_grid.addWidget(self.purchase_card, 0, 0)
-        results_grid.addWidget(self.sale_card, 0, 1)
-        results_grid.addWidget(self.profit_card, 1, 0)
-        results_grid.addWidget(self.roi_card, 1, 1)
-
-        layout.addLayout(results_grid)
-
-        # Price details
-        details_card = self.make_card()
-        details_layout = QVBoxLayout(details_card)
-        details_layout.setContentsMargins(20, 16, 20, 16)
-        details_layout.setSpacing(10)
-
-        self.buy_price_label = QLabel("Buy price: —")
-        self.sell_price_label = QLabel("Sell price: —")
-        self.actual_dates_label = QLabel("Actual price dates: —")
-
-        for label in (
-            self.buy_price_label,
-            self.sell_price_label,
-            self.actual_dates_label,
-        ):
-            label.setObjectName("detailLabel")
-            label.setWordWrap(True)
-            details_layout.addWidget(label)
-
-        layout.addWidget(details_card)
+        layout.addWidget(results_card)
         layout.addStretch()
 
-        self.tabs.addTab(tab, "Trade Calculator")
+    def create_result_label(self, text):
+        """
+        Make a result label with larger text.
 
-    # ==================================================
-    # COMPARISON TAB
-    # ==================================================
+        Using one helper method keeps all the result values
+        looking the same.
+        """
 
-    def build_comparison_tab(self):
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-        layout.setContentsMargins(10, 22, 10, 10)
-        layout.setSpacing(18)
-
-        heading = QLabel("Compare cryptocurrencies")
-        heading.setObjectName("sectionTitle")
-        layout.addWidget(heading)
-
-        description = QLabel(
-            "Compare estimated returns across all available assets."
-        )
-        description.setObjectName("description")
-        layout.addWidget(description)
-
-        controls = self.make_card()
-        grid = QGridLayout(controls)
-        grid.setContentsMargins(20, 20, 20, 20)
-        grid.setHorizontalSpacing(16)
-        grid.setVerticalSpacing(12)
-
-        grid.addWidget(self.make_label("Quantity"), 0, 0)
-        grid.addWidget(self.make_label("Buy date"), 0, 1)
-        grid.addWidget(self.make_label("Sell date"), 0, 2)
-
-        self.compare_quantity = QDoubleSpinBox()
-        self.compare_quantity.setRange(0.000001, 1_000_000_000)
-        self.compare_quantity.setDecimals(6)
-        self.compare_quantity.setValue(1.0)
-        self.compare_quantity.setMinimumHeight(40)
-
-        self.compare_buy_date = QDateEdit()
-        self.compare_buy_date.setCalendarPopup(True)
-        self.compare_buy_date.setDisplayFormat("dd MMM yyyy")
-        self.compare_buy_date.setMinimumHeight(40)
-
-        self.compare_sell_date = QDateEdit()
-        self.compare_sell_date.setCalendarPopup(True)
-        self.compare_sell_date.setDisplayFormat("dd MMM yyyy")
-        self.compare_sell_date.setMinimumHeight(40)
-
-        grid.addWidget(self.compare_quantity, 1, 0)
-        grid.addWidget(self.compare_buy_date, 1, 1)
-        grid.addWidget(self.compare_sell_date, 1, 2)
-
-        self.compare_button = QPushButton("Compare assets")
-        self.compare_button.setMinimumHeight(42)
-        self.compare_button.clicked.connect(self.compare_assets)
-
-        grid.addWidget(self.compare_button, 2, 0, 1, 3)
-
-        layout.addWidget(controls)
-
-        self.table = QTableWidget()
-        self.table.setColumnCount(6)
-        self.table.setHorizontalHeaderLabels([
-            "Asset",
-            "Buy price",
-            "Sell price",
-            "Purchase cost",
-            "Profit / loss",
-            "ROI",
-        ])
-
-        self.table.setEditTriggers(
-            QAbstractItemView.EditTrigger.NoEditTriggers
-        )
-        self.table.setSelectionBehavior(
-            QAbstractItemView.SelectionBehavior.SelectRows
-        )
-        self.table.setAlternatingRowColors(True)
-        self.table.setShowGrid(False)
-        self.table.verticalHeader().setVisible(False)
-
-        self.table.horizontalHeader().setSectionResizeMode(
-            QHeaderView.ResizeMode.Stretch
-        )
-
-        layout.addWidget(self.table)
-
-        self.tabs.addTab(tab, "Compare Assets")
-
-    # ==================================================
-    # UI HELPERS
-    # ==================================================
-
-    @staticmethod
-    def make_card():
-        card = QFrame()
-        card.setObjectName("card")
-        return card
-
-    @staticmethod
-    def make_label(text):
         label = QLabel(text)
-        label.setObjectName("fieldLabel")
+        label.setObjectName("resultValue")
+        label.setWordWrap(True)
         return label
 
-    def result_card(self, title):
-        card = self.make_card()
-
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(20, 17, 20, 17)
-        layout.setSpacing(9)
-
-        heading = QLabel(title)
-        heading.setObjectName("resultHeading")
-
-        value = QLabel("—")
-        value.setObjectName("resultValue")
-        value.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-        )
-
-        layout.addWidget(heading)
-        layout.addWidget(value)
-
-        return card, value
-
-    # ==================================================
-    # FIND AND LOAD CSV
-    # ==================================================
-
-    def find_csv(self):
+    def create_result_group(self, heading, value_label):
         """
-        Try the expected filename, then look for CSV files
-        in the project directory. If none are found, let
-        the user select the file manually.
+        Put a heading and its result together in a small section.
         """
 
-        preferred = [
-            APP_DIR / "combined(1).csv",
-            APP_DIR / "combined.csv",
-        ]
+        group = QWidget()
+        group_layout = QVBoxLayout(group)
+        group_layout.setContentsMargins(0, 0, 0, 0)
+        group_layout.setSpacing(6)
 
-        for path in preferred:
-            if path.is_file():
-                self.load_csv(path)
-                return
+        heading_label = QLabel(heading)
+        heading_label.setObjectName("resultHeading")
 
-        candidates = sorted(
-            path for path in APP_DIR.glob("*.csv")
-            if path.is_file()
+        group_layout.addWidget(heading_label)
+        group_layout.addWidget(value_label)
+
+        return group
+
+    # --------------------------------------------------------
+    # COMPARE ASSETS TAB
+    # --------------------------------------------------------
+
+    def build_compare_tab(self):
+        """Create a table for comparing cryptocurrency prices."""
+
+        layout = QVBoxLayout(self.compare_tab)
+        layout.setContentsMargins(8, 18, 8, 8)
+        layout.setSpacing(16)
+
+        description = QLabel(
+            "Compare the recorded prices of different "
+            "cryptocurrencies on a selected date."
+        )
+        description.setObjectName("sectionDescription")
+        description.setWordWrap(True)
+
+        layout.addWidget(description)
+
+        # The user chooses a date to compare asset prices.
+        date_layout = QHBoxLayout()
+
+        compare_date_label = QLabel("Comparison date")
+
+        self.compare_date = QDateEdit()
+        self.compare_date.setCalendarPopup(True)
+        self.compare_date.setDisplayFormat("dd MMM yyyy")
+        self.compare_date.setMinimumHeight(40)
+
+        self.compare_button = QPushButton("Compare Prices")
+        self.compare_button.setObjectName("primaryButton")
+        self.compare_button.setMinimumHeight(40)
+
+        # Clicking this button fills the table with price data.
+        self.compare_button.clicked.connect(self.compare_assets)
+
+        date_layout.addWidget(compare_date_label)
+        date_layout.addWidget(self.compare_date)
+        date_layout.addStretch()
+        date_layout.addWidget(self.compare_button)
+
+        layout.addLayout(date_layout)
+
+        # Each row in the table represents one cryptocurrency.
+        self.comparison_table = QTableWidget()
+        self.comparison_table.setColumnCount(3)
+        self.comparison_table.setHorizontalHeaderLabels(
+            ["Cryptocurrency", "Recorded Date", "Closing Price"]
         )
 
-        if len(candidates) == 1:
-            self.load_csv(candidates[0])
-            return
+        self.comparison_table.setAlternatingRowColors(True)
+        self.comparison_table.setEditTriggers(
+            QTableWidget.EditTrigger.NoEditTriggers
+        )
+        self.comparison_table.setSelectionBehavior(
+            QTableWidget.SelectionBehavior.SelectRows
+        )
+        self.comparison_table.horizontalHeader().setStretchLastSection(True)
+        self.comparison_table.setMinimumHeight(300)
 
-        if candidates:
-            combined_candidates = [
-                path for path in candidates
-                if "combined" in path.name.lower()
-            ]
+        layout.addWidget(self.comparison_table)
 
-            if len(combined_candidates) == 1:
-                self.load_csv(combined_candidates[0])
-                return
+        # This message is used when the selected date has no data.
+        self.compare_status = QLabel("")
+        self.compare_status.setObjectName("sectionDescription")
+        self.compare_status.setWordWrap(True)
 
-        # Do not crash or show an unnecessary error.
-        # Ask the user to locate the CSV.
-        self.choose_csv()
+        layout.addWidget(self.compare_status)
+        layout.addStretch()
 
-    def choose_csv(self):
+    # --------------------------------------------------------
+    # APPLY THE GREEN-AND-WHITE THEME
+    # --------------------------------------------------------
+
+    def apply_styles(self):
+        """
+        Apply a consistent style to the whole application.
+
+        Keeping the colours and widget styles here makes it
+        easier to update the appearance in the future.
+        """
+
+        self.setStyleSheet(f"""
+            QMainWindow {{
+                background-color: {self.background};
+            }}
+
+            QWidget {{
+                color: {self.text_colour};
+                font-family: Arial;
+                font-size: 14px;
+            }}
+
+            QLabel#mainTitle {{
+                color: {self.dark_green};
+                font-size: 30px;
+                font-weight: bold;
+            }}
+
+            QLabel#subtitle {{
+                color: {self.muted_colour};
+                font-size: 14px;
+            }}
+
+            QLabel#footerLabel {{
+                color: {self.muted_colour};
+                font-size: 11px;
+            }}
+
+            QLabel#resultHeading {{
+                color: {self.muted_colour};
+                font-size: 13px;
+            }}
+
+            QLabel#resultValue {{
+                color: {self.dark_green};
+                font-size: 21px;
+                font-weight: bold;
+            }}
+
+            QLabel#sectionDescription {{
+                color: {self.muted_colour};
+                font-size: 13px;
+            }}
+
+            QFrame#card {{
+                background-color: {self.white};
+                border: 1px solid {self.border_colour};
+                border-radius: 12px;
+            }}
+
+            QLineEdit, QComboBox, QDoubleSpinBox, QDateEdit {{
+                background-color: {self.white};
+                border: 1px solid {self.border_colour};
+                border-radius: 7px;
+                padding: 8px;
+                color: {self.text_colour};
+            }}
+
+            QComboBox:focus, QDoubleSpinBox:focus, QDateEdit:focus {{
+                border: 1px solid {self.green};
+            }}
+
+            QPushButton {{
+                border-radius: 8px;
+                padding: 10px 16px;
+                font-weight: bold;
+            }}
+
+            QPushButton#primaryButton {{
+                background-color: {self.green};
+                color: {self.white};
+                border: none;
+            }}
+
+            QPushButton#primaryButton:hover {{
+                background-color: {self.dark_green};
+            }}
+
+            QPushButton#secondaryButton {{
+                background-color: {self.light_green};
+                color: {self.dark_green};
+                border: 1px solid {self.border_colour};
+            }}
+
+            QPushButton#secondaryButton:hover {{
+                background-color: #D9EEE0;
+            }}
+
+            QTabWidget::pane {{
+                background-color: transparent;
+                border: none;
+            }}
+
+            QTabBar::tab {{
+                background-color: transparent;
+                color: {self.muted_colour};
+                padding: 12px 20px;
+                margin-right: 6px;
+                border-bottom: 3px solid transparent;
+                font-weight: bold;
+            }}
+
+            QTabBar::tab:selected {{
+                color: {self.dark_green};
+                border-bottom: 3px solid {self.green};
+            }}
+
+            QTableWidget {{
+                background-color: {self.white};
+                alternate-background-color: {self.light_green};
+                border: 1px solid {self.border_colour};
+                border-radius: 8px;
+                gridline-color: {self.border_colour};
+                selection-background-color: #D6EEDF;
+                selection-color: {self.text_colour};
+            }}
+
+            QHeaderView::section {{
+                background-color: {self.light_green};
+                color: {self.dark_green};
+                padding: 10px;
+                border: none;
+                border-bottom: 1px solid {self.border_colour};
+                font-weight: bold;
+            }}
+        """)
+
+    # --------------------------------------------------------
+    # LOAD THE CSV DATASET
+    # --------------------------------------------------------
+
+    def choose_csv(self, show_message=True):
+        """
+        Open a file picker so the user can choose a CSV file.
+
+        This is useful if the dataset is stored somewhere other
+        than the application folder.
+        """
+
+        # Start browsing from the project folder when possible.
+        start_folder = str(Path(__file__).resolve().parent)
+
         file_path, _ = QFileDialog.getOpenFileName(
             self,
-            "Select your cryptocurrency CSV",
-            str(Path.home()),
-            "CSV Files (*.csv);;All Files (*)",
+            "Select cryptocurrency CSV file",
+            start_folder,
+            "CSV Files (*.csv);;All Files (*)"
         )
 
-        if file_path:
-            self.load_csv(Path(file_path))
+        # The user may close the file picker without choosing.
+        # In that case, there is nothing more to do.
+        if not file_path:
+            if show_message and self.data.empty:
+                QMessageBox.information(
+                    self,
+                    "No file selected",
+                    "Please select a CSV file to use the calculator."
+                )
+            return
 
-    def load_csv(self, path):
+        self.load_csv(file_path)
+
+    def load_csv(self, file_path):
+        """
+        Read the selected CSV and prepare its columns for use.
+
+        The dataset should contain a date, a closing price,
+        and a cryptocurrency name.
+        """
+
         try:
-            df = pd.read_csv(path)
+            # Pandas makes it easier to read and organise CSV data.
+            loaded_data = pd.read_csv(file_path)
 
-            # Match column names without case sensitivity.
-            columns = {
-                str(column).strip().lower(): column
-                for column in df.columns
-            }
-
-            required = ["date", "close", "name"]
-            missing = [
-                column for column in required
-                if column not in columns
+            # Some datasets use capital letters in column names,
+            # while others use lowercase. Normalising the names
+            # lets the application work with either format.
+            loaded_data.columns = [
+                str(column).strip().lower()
+                for column in loaded_data.columns
             ]
 
-            if missing:
+            # These columns are essential for our calculations.
+            required_columns = ["date", "close", "name"]
+
+            missing_columns = [
+                column
+                for column in required_columns
+                if column not in loaded_data.columns
+            ]
+
+            if missing_columns:
                 QMessageBox.warning(
                     self,
-                    "CSV format not recognised",
-                    "The file needs these columns:\n"
-                    "date, close, name\n\n"
-                    f"Missing: {', '.join(missing)}\n\n"
-                    f"Found: {', '.join(map(str, df.columns))}",
+                    "CSV format problem",
+                    "The selected file is missing these required "
+                    "columns:\n\n"
+                    + ", ".join(missing_columns)
+                    + "\n\nPlease use a file containing date, "
+                      "close, and Name columns."
                 )
                 return
 
-            df = df.rename(columns={
-                columns["date"]: "date",
-                columns["close"]: "close",
-                columns["name"]: "asset",
-            })
-
-            df["date"] = pd.to_datetime(
-                df["date"], errors="coerce", utc=True
-            ).dt.tz_convert(None)
-
-            df["close"] = pd.to_numeric(
-                df["close"], errors="coerce"
+            # Convert dates into a format Python can compare.
+            # Invalid dates become empty values instead of causing
+            # the entire application to stop.
+            loaded_data["date"] = pd.to_datetime(
+                loaded_data["date"],
+                errors="coerce"
             )
 
-            df["asset"] = df["asset"].astype(str).str.strip()
+            # Closing prices must be numeric before calculations.
+            loaded_data["close"] = pd.to_numeric(
+                loaded_data["close"],
+                errors="coerce"
+            )
 
-            df = df.dropna(subset=["date", "close", "asset"])
-            df = df[df["close"] > 0]
-            df = df[df["asset"] != ""]
+            # Remove rows where a date, price, or asset name
+            # is missing or unusable.
+            loaded_data = loaded_data.dropna(
+                subset=["date", "close", "name"]
+            )
 
-            if df.empty:
+            # Negative and zero prices cannot be used for a
+            # meaningful investment calculation.
+            loaded_data = loaded_data[
+                loaded_data["close"] > 0
+            ]
+
+            # Remove spaces from asset names for cleaner dropdowns.
+            loaded_data["name"] = (
+                loaded_data["name"].astype(str).str.strip()
+            )
+
+            loaded_data = loaded_data[
+                loaded_data["name"] != ""
+            ]
+
+            # Sort the records so date-based lookups are predictable.
+            loaded_data = loaded_data.sort_values("date")
+
+            # If nothing useful remains, there is no point
+            # continuing with an empty dataset.
+            if loaded_data.empty:
                 QMessageBox.warning(
                     self,
                     "No usable data",
-                    "This CSV does not contain valid price records.",
+                    "The selected CSV does not contain valid "
+                    "dates and closing prices."
                 )
                 return
 
-            history = {}
+            # Save the cleaned data for the rest of the application.
+            self.data = loaded_data.reset_index(drop=True)
+            self.csv_path = Path(file_path)
 
-            for asset, group in df.groupby("asset"):
-                series = (
-                    group.groupby("date")["close"]
-                    .last()
-                    .sort_index()
-                )
+            # Update the dropdowns and date controls to match
+            # the dates and assets found in the selected dataset.
+            self.update_controls()
 
-                if not series.empty:
-                    history[str(asset)] = series
+            # Show the filename and a quick summary of the data.
+            asset_count = self.data["name"].nunique()
+            record_count = len(self.data)
 
-            if not history:
-                QMessageBox.warning(
-                    self,
-                    "No assets found",
-                    "No cryptocurrency price records were found.",
-                )
-                return
-
-            # Save the loaded data.
-            self.data = df
-            self.price_history = history
-            self.csv_path = path
-
-            first = df["date"].min().date()
-            last = df["date"].max().date()
-
-            first_qdate = QDate(
-                first.year, first.month, first.day
-            )
-            last_qdate = QDate(
-                last.year, last.month, last.day
+            self.file_status.setText(
+                f"Loaded: {self.csv_path.name}  ·  "
+                f"{asset_count} assets  ·  {record_count:,} records"
             )
 
-            default_buy = last_qdate.addDays(-30)
+            if show_message := False:
+                pass
 
-            if default_buy < first_qdate:
-                default_buy = first_qdate
-
-            # Configure date limits before setting dates.
-            for widget in (
-                self.buy_date,
-                self.sell_date,
-                self.compare_buy_date,
-                self.compare_sell_date,
-            ):
-                widget.blockSignals(True)
-                widget.setMinimumDate(first_qdate)
-                widget.setMaximumDate(last_qdate)
-
-            self.buy_date.setDate(default_buy)
-            self.sell_date.setDate(last_qdate)
-            self.compare_buy_date.setDate(default_buy)
-            self.compare_sell_date.setDate(last_qdate)
-
-            for widget in (
-                self.buy_date,
-                self.sell_date,
-                self.compare_buy_date,
-                self.compare_sell_date,
-            ):
-                widget.blockSignals(False)
-
-            # Populate the dropdown after the data is ready.
-            self.asset_combo.blockSignals(True)
-            self.asset_combo.clear()
-            self.asset_combo.addItems(sorted(history.keys()))
-            self.asset_combo.setEnabled(True)
-            self.asset_combo.blockSignals(False)
-
-            self.file_label.setText(
-                f"Loaded: {path.name}  ·  "
-                f"{len(history)} assets  ·  "
-                f"{len(df):,} records"
-            )
-
-            self.calculate_trade()
-            self.compare_assets()
-
-        except (OSError, pd.errors.ParserError, ValueError) as error:
+        except Exception as error:
+            # A helpful error message is better than a silent failure.
             QMessageBox.critical(
                 self,
                 "Could not load CSV",
-                f"Unable to read this file:\n{path}\n\n{error}",
+                f"Something went wrong while reading the file:\n\n{error}"
             )
 
-        except Exception as error:
-            QMessageBox.critical(
+    # --------------------------------------------------------
+    # UPDATE ASSET LISTS AND DATE PICKERS
+    # --------------------------------------------------------
+
+    def update_controls(self):
+        """Fill the dropdowns and date pickers using the loaded data."""
+
+        if self.data.empty:
+            return
+
+        # Get a sorted list of available cryptocurrency names.
+        assets = sorted(self.data["name"].unique().tolist())
+
+        # Block signals while refreshing the dropdown so that
+        # intermediate changes do not trigger unwanted actions.
+        self.asset_combo.blockSignals(True)
+        self.asset_combo.clear()
+        self.asset_combo.addItems(assets)
+        self.asset_combo.blockSignals(False)
+
+        # Find the first and last dates available in the dataset.
+        first_date = self.data["date"].min().date()
+        last_date = self.data["date"].max().date()
+
+        # Convert Python dates into the format Qt's date picker uses.
+        minimum_qdate = QDate(
+            first_date.year,
+            first_date.month,
+            first_date.day
+        )
+
+        maximum_qdate = QDate(
+            last_date.year,
+            last_date.month,
+            last_date.day
+        )
+
+        # Prevent the user from selecting dates outside the dataset.
+        for date_picker in [
+            self.buy_date,
+            self.sell_date,
+            self.compare_date
+        ]:
+            date_picker.setMinimumDate(minimum_qdate)
+            date_picker.setMaximumDate(maximum_qdate)
+
+        # Set sensible starting dates so the user can try the
+        # calculator straight away.
+        self.buy_date.setDate(minimum_qdate)
+        self.sell_date.setDate(maximum_qdate)
+        self.compare_date.setDate(maximum_qdate)
+
+    # --------------------------------------------------------
+    # FIND A PRICE FOR A SELECTED DATE
+    # --------------------------------------------------------
+
+    def get_price_for_date(self, asset_name, selected_date):
+        """
+        Find the closing price closest to the requested date.
+
+        Cryptocurrency datasets do not always contain a record
+        for every calendar day. If the exact date is missing,
+        this method uses the most recent available record on or
+        before the selected date.
+
+        It never uses a future record for a past-date lookup.
+        """
+
+        # Keep only records belonging to the chosen asset.
+        asset_data = self.data[
+            self.data["name"] == asset_name
+        ].sort_values("date")
+
+        if asset_data.empty:
+            return None
+
+        # Convert the selected date into a timestamp so it can
+        # be compared directly with the dates in the dataset.
+        requested_timestamp = pd.Timestamp(selected_date)
+
+        # Only use data dated on or before the requested date.
+        available_data = asset_data[
+            asset_data["date"] <= requested_timestamp
+        ]
+
+        if available_data.empty:
+            return None
+
+        # The final row is the closest available record before
+        # or on the selected date.
+        price_row = available_data.iloc[-1]
+
+        return {
+            "price": float(price_row["close"]),
+            "date": price_row["date"],
+        }
+
+    # --------------------------------------------------------
+    # CALCULATE PROFIT OR LOSS
+    # --------------------------------------------------------
+
+    def calculate_profit(self):
+        """Calculate the estimated result of an investment."""
+
+        # We cannot calculate anything until a dataset is loaded.
+        if self.data.empty:
+            QMessageBox.warning(
                 self,
-                "Unexpected error",
-                f"Something went wrong while loading the CSV:\n\n{error}",
-            )
-
-    # ==================================================
-    # DATE HANDLING
-    # ==================================================
-
-    def buy_date_changed(self, date):
-        if date > self.sell_date.date():
-            self.sell_date.setDate(date)
-
-        self.calculate_trade()
-
-    def sell_date_changed(self, date):
-        if date < self.buy_date.date():
-            self.buy_date.setDate(date)
-
-        self.calculate_trade()
-
-    # ==================================================
-    # PRICE LOOKUP
-    # ==================================================
-
-    def find_price(self, asset, selected_date):
-        """
-        Find the latest closing price on or before the
-        selected date.
-        """
-
-        if asset not in self.price_history:
-            return None, None
-
-        series = self.price_history[asset]
-        target = pd.Timestamp(selected_date.toPyDate())
-
-        available = series.loc[series.index <= target]
-
-        if available.empty:
-            return None, None
-
-        actual_date = available.index[-1]
-        price = float(available.iloc[-1])
-
-        return price, actual_date
-
-    @staticmethod
-    def money(value):
-        return f"${value:,.2f}"
-
-    @staticmethod
-    def colour_result(label, value):
-        if value > 0:
-            label.setStyleSheet("color: #16845b;")
-        elif value < 0:
-            label.setStyleSheet("color: #d64545;")
-        else:
-            label.setStyleSheet("color: #263b32;")
-
-    # ==================================================
-    # CALCULATE PROFIT / LOSS
-    # ==================================================
-
-    def calculate_trade(self, *_):
-        if not self.price_history:
-            return
-
-        asset = self.asset_combo.currentText()
-
-        if not asset:
-            return
-
-        quantity = self.quantity.value()
-
-        buy_price, buy_actual_date = self.find_price(
-            asset, self.buy_date.date()
-        )
-
-        sell_price, sell_actual_date = self.find_price(
-            asset, self.sell_date.date()
-        )
-
-        if buy_price is None or sell_price is None:
-            self.purchase_result.setText("Unavailable")
-            self.sale_result.setText("Unavailable")
-            self.profit_result.setText("Unavailable")
-            self.roi_result.setText("Unavailable")
-
-            self.buy_price_label.setText("Buy price: unavailable")
-            self.sell_price_label.setText("Sell price: unavailable")
-            self.actual_dates_label.setText(
-                "No price records found for the selected dates."
+                "No dataset loaded",
+                "Please load a cryptocurrency CSV file first."
             )
             return
 
-        purchase_cost = buy_price * quantity
-        sale_value = sell_price * quantity
-        profit_loss = sale_value - purchase_cost
+        asset_name = self.asset_combo.currentText()
 
-        roi = (
-            profit_loss / purchase_cost * 100
-            if purchase_cost else 0.0
+        # Read the investment amount and selected dates.
+        investment = self.amount_input.value()
+        purchase_date = self.buy_date.date().toPyDate()
+        sale_date = self.sell_date.date().toPyDate()
+
+        # Buying after the selected sale date would make the
+        # calculation invalid, so ask the user to correct it.
+        if purchase_date > sale_date:
+            QMessageBox.warning(
+                self,
+                "Check your dates",
+                "The purchase date must be before or the same "
+                "as the sale date."
+            )
+            return
+
+        # Look up the two closing prices in the dataset.
+        purchase_record = self.get_price_for_date(
+            asset_name,
+            purchase_date
         )
 
-        self.purchase_result.setText(
-            self.money(purchase_cost)
+        sale_record = self.get_price_for_date(
+            asset_name,
+            sale_date
         )
-        self.sale_result.setText(
-            self.money(sale_value)
+
+        # If there is no suitable historical price for either
+        # date, show a message rather than guessing a price.
+        if purchase_record is None or sale_record is None:
+            QMessageBox.warning(
+                self,
+                "Price unavailable",
+                "A suitable price could not be found for the "
+                "selected dates. Please try different dates."
+            )
+            return
+
+        purchase_price = purchase_record["price"]
+        sale_price = sale_record["price"]
+
+        # Calculate how many units the original investment buys.
+        units_bought = investment / purchase_price
+
+        # Estimate what those units would be worth at the sale price.
+        final_value = units_bought * sale_price
+
+        # A positive result means profit; a negative result means loss.
+        profit_loss = final_value - investment
+
+        # ROI shows the profit or loss as a percentage of
+        # the original investment.
+        roi = (profit_loss / investment) * 100
+
+        # Update each result on the screen.
+        self.purchase_price_result.setText(
+            f"${purchase_price:,.6f}"
         )
+
+        self.sale_price_result.setText(
+            f"${sale_price:,.6f}"
+        )
+
+        self.units_result.setText(
+            f"{units_bought:,.6f}"
+        )
+
+        self.final_value_result.setText(
+            f"${final_value:,.2f}"
+        )
+
         self.profit_result.setText(
-            self.money(profit_loss)
+            f"${profit_loss:,.2f}"
         )
+
         self.roi_result.setText(
             f"{roi:+.2f}%"
         )
 
-        self.colour_result(self.profit_result, profit_loss)
-        self.colour_result(self.roi_result, roi)
-
-        self.buy_price_label.setText(
-            f"Buy price: {self.money(buy_price)} per unit"
-        )
-        self.sell_price_label.setText(
-            f"Sell price: {self.money(sell_price)} per unit"
+        # Green represents profit, while red makes a loss easier
+        # to spot at a glance.
+        result_colour = (
+            self.green if profit_loss >= 0 else "#C0392B"
         )
 
-        self.actual_dates_label.setText(
-            f"Price dates used: {buy_actual_date:%d %b %Y}"
-            f" – {sell_actual_date:%d %b %Y}"
+        self.profit_result.setStyleSheet(
+            f"color: {result_colour}; font-size: 21px; font-weight: bold;"
         )
 
-    # ==================================================
-    # COMPARE ASSETS
-    # ==================================================
+        self.roi_result.setStyleSheet(
+            f"color: {result_colour}; font-size: 21px; font-weight: bold;"
+        )
 
-    def compare_assets(self, *_):
-        if not self.price_history:
-            return
+        # The selected date might not exist exactly in the CSV.
+        # Show the dates actually used so the result is transparent.
+        self.file_status.setText(
+            f"Using prices recorded on "
+            f"{purchase_record['date'].strftime('%d %b %Y')} "
+            f"and {sale_record['date'].strftime('%d %b %Y')}."
+        )
 
-        buy_date = self.compare_buy_date.date()
-        sell_date = self.compare_sell_date.date()
+    # --------------------------------------------------------
+    # COMPARE CRYPTOCURRENCY PRICES
+    # --------------------------------------------------------
 
-        if buy_date > sell_date:
+    def compare_assets(self):
+        """
+        Fill the comparison table with each asset's latest
+        available closing price on or before the chosen date.
+        """
+
+        if self.data.empty:
             QMessageBox.warning(
                 self,
-                "Invalid dates",
-                "The buy date must be on or before the sell date.",
+                "No dataset loaded",
+                "Please load a cryptocurrency CSV file first."
             )
             return
 
-        quantity = self.compare_quantity.value()
-        results = []
+        # Clear old results before adding the new comparison.
+        self.comparison_table.setRowCount(0)
+        self.compare_status.setText("")
 
-        for asset in sorted(self.price_history):
-            buy_price, _ = self.find_price(asset, buy_date)
-            sell_price, _ = self.find_price(asset, sell_date)
+        chosen_date = self.compare_date.date().toPyDate()
 
-            if buy_price is None or sell_price is None:
+        # Each asset gets its own row in the comparison table.
+        assets = sorted(self.data["name"].unique().tolist())
+
+        for asset_name in assets:
+            record = self.get_price_for_date(
+                asset_name,
+                chosen_date
+            )
+
+            # Some assets might not have data on or before
+            # the chosen date, so skip them safely.
+            if record is None:
                 continue
 
-            cost = buy_price * quantity
-            value = sell_price * quantity
-            profit = value - cost
-            roi = profit / cost * 100 if cost else 0.0
+            row_index = self.comparison_table.rowCount()
+            self.comparison_table.insertRow(row_index)
 
-            results.append({
-                "asset": asset,
-                "buy": buy_price,
-                "sell": sell_price,
-                "cost": cost,
-                "profit": profit,
-                "roi": roi,
-            })
-
-        # Best profit first.
-        results.sort(
-            key=lambda item: item["profit"],
-            reverse=True,
-        )
-
-        self.table.setRowCount(len(results))
-
-        for row, result in enumerate(results):
+            # Add the name, actual recorded date, and price.
             values = [
-                result["asset"],
-                self.money(result["buy"]),
-                self.money(result["sell"]),
-                self.money(result["cost"]),
-                self.money(result["profit"]),
-                f'{result["roi"]:+.2f}%',
+                asset_name,
+                record["date"].strftime("%d %b %Y"),
+                f"${record['price']:,.6f}",
             ]
 
-            for column, text in enumerate(values):
-                item = QTableWidgetItem(text)
+            for column_index, value in enumerate(values):
+                item = QTableWidgetItem(value)
 
-                if column > 0:
+                # Left-align the cryptocurrency name and
+                # right-align the date and price for readability.
+                if column_index == 0:
                     item.setTextAlignment(
-                        Qt.AlignmentFlag.AlignRight
-                        | Qt.AlignmentFlag.AlignVCenter
+                        Qt.AlignmentFlag.AlignVCenter
+                        | Qt.AlignmentFlag.AlignLeft
+                    )
+                else:
+                    item.setTextAlignment(
+                        Qt.AlignmentFlag.AlignVCenter
+                        | Qt.AlignmentFlag.AlignRight
                     )
 
-                if column in (4, 5):
-                    number = (
-                        result["profit"]
-                        if column == 4
-                        else result["roi"]
-                    )
+                self.comparison_table.setItem(
+                    row_index,
+                    column_index,
+                    item
+                )
 
-                    if number > 0:
-                        item.setForeground(QColor("#16845b"))
-                    elif number < 0:
-                        item.setForeground(QColor("#d64545"))
+        # Tell the user how many assets were found.
+        total_rows = self.comparison_table.rowCount()
 
-                self.table.setItem(row, column, item)
+        if total_rows == 0:
+            self.compare_status.setText(
+                "No suitable prices were found for this date."
+            )
+        else:
+            self.compare_status.setText(
+                f"Showing {total_rows} cryptocurrencies with "
+                f"available prices on or before "
+                f"{chosen_date.strftime('%d %b %Y')}."
+            )
 
-    # ==================================================
-    # SIMPLE GREEN THEME
-    # ==================================================
-
-    def apply_style(self):
-        self.setStyleSheet("""
-            QMainWindow {
-                background-color: #f5f8f5;
-            }
-
-            QWidget {
-                font-family: "Arial";
-                font-size: 13px;
-                color: #263b32;
-            }
-
-            QLabel#appTitle {
-                color: #176b4d;
-                font-size: 30px;
-                font-weight: bold;
-            }
-
-            QLabel#subtitle {
-                color: #74847b;
-                font-size: 13px;
-            }
-
-            QLabel#sectionTitle {
-                color: #244b39;
-                font-size: 20px;
-                font-weight: bold;
-            }
-
-            QLabel#description {
-                color: #74847b;
-                font-size: 13px;
-            }
-
-            QLabel#fieldLabel {
-                color: #42594c;
-                font-weight: bold;
-            }
-
-            QLabel#resultHeading {
-                color: #74847b;
-                font-size: 13px;
-            }
-
-            QLabel#resultValue {
-                color: #263b32;
-                font-size: 23px;
-                font-weight: bold;
-            }
-
-            QLabel#detailLabel {
-                color: #52685b;
-                font-size: 13px;
-            }
-
-            QLabel#fileLabel {
-                color: #74847b;
-                font-size: 11px;
-            }
-
-            QFrame#card {
-                background-color: #ffffff;
-                border: 1px solid #e1eae2;
-                border-radius: 12px;
-            }
-
-            QComboBox,
-            QDoubleSpinBox,
-            QDateEdit {
-                background-color: #ffffff;
-                border: 1px solid #d7e3d9;
-                border-radius: 7px;
-                padding: 8px;
-                selection-background-color: #d8eee0;
-                min-height: 22px;
-            }
-
-            QComboBox:hover,
-            QDoubleSpinBox:hover,
-            QDateEdit:hover {
-                border: 1px solid #75aa8c;
-            }
-
-            QComboBox:focus,
-            QDoubleSpinBox:focus,
-            QDateEdit:focus {
-                border: 1px solid #26835d;
-            }
-
-            QComboBox QAbstractItemView {
-                background-color: white;
-                color: #263b32;
-                selection-background-color: #d8eee0;
-                selection-color: #176b4d;
-                border: 1px solid #d7e3d9;
-                outline: none;
-                padding: 4px;
-            }
-
-            QPushButton {
-                background-color: #21835b;
-                color: white;
-                border: none;
-                border-radius: 8px;
-                padding: 11px 18px;
-                font-weight: bold;
-            }
-
-            QPushButton:hover {
-                background-color: #176b4a;
-            }
-
-            QPushButton:pressed {
-                background-color: #12573c;
-            }
-
-            QPushButton:disabled {
-                background-color: #cbd8ce;
-                color: #718076;
-            }
-
-            QPushButton#outlineButton {
-                background-color: white;
-                color: #21835b;
-                border: 1px solid #b9d7c2;
-            }
-
-            QPushButton#outlineButton:hover {
-                background-color: #edf6ef;
-            }
-
-            QTabWidget::pane {
-                background-color: transparent;
-                border: none;
-                top: -1px;
-            }
-
-            QTabBar::tab {
-                background-color: #eaf0eb;
-                color: #63746a;
-                padding: 12px 22px;
-                margin-right: 5px;
-                border-top-left-radius: 8px;
-                border-top-right-radius: 8px;
-            }
-
-            QTabBar::tab:selected {
-                background-color: #21835b;
-                color: white;
-            }
-
-            QTabBar::tab:hover:!selected {
-                background-color: #dce9df;
-            }
-
-            QTableWidget {
-                background-color: white;
-                alternate-background-color: #f6faf6;
-                border: 1px solid #e1eae2;
-                border-radius: 10px;
-                gridline-color: #edf2ed;
-                selection-background-color: #dcefe2;
-                selection-color: #244b39;
-            }
-
-            QHeaderView::section {
-                background-color: #edf4ee;
-                color: #42594c;
-                padding: 12px 8px;
-                border: none;
-                border-bottom: 1px solid #dfe9e0;
-                font-weight: bold;
-            }
-
-            QTableCornerButton::section {
-                background-color: #edf4ee;
-                border: none;
-            }
-
-            QScrollBar:vertical {
-                background: #f5f8f5;
-                width: 10px;
-                margin: 0;
-            }
-
-            QScrollBar::handle:vertical {
-                background: #c5d9ca;
-                border-radius: 5px;
-                min-height: 25px;
-            }
-
-            QScrollBar::handle:vertical:hover {
-                background: #91b69d;
-            }
-
-            QScrollBar::add-line:vertical,
-            QScrollBar::sub-line:vertical {
-                height: 0;
-            }
-        """)
+    # --------------------------------------------------------
+    # START THE APPLICATION
+    # --------------------------------------------------------
 
 
-# ======================================================
-# START APPLICATION
-# ======================================================
+def main():
+    """
+    Start the desktop application.
 
-if __name__ == "__main__":
+    Keeping the startup code in a function makes the program
+    easier to organise and understand.
+    """
+
+    # QApplication manages the main event loop and desktop UI.
     app = QApplication(sys.argv)
 
-    window = ExitPrice()
+    # Use a clean font throughout the application.
+    app.setFont(QFont("Arial", 10))
+
+    # Create and display the main Fixed Price window.
+    window = FixedPrice()
     window.show()
 
+    # Keep the application running until the user closes it.
     sys.exit(app.exec())
+
+
+# This check makes sure the application starts when main.py
+# is run directly, without starting it automatically if the
+# file is imported by another Python file.
+if __name__ == "__main__":
+    main()
